@@ -2097,6 +2097,7 @@ def minion_config(path,
                   defaults=None,
                   cache_minion_id=False,
                   ignore_config_errors=True,
+                  sock_fd=None,
                   minion_id=None):
     '''
     Reads in the minion configuration file and sets up special options

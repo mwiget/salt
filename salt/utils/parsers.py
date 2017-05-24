@@ -1214,6 +1214,18 @@ class ProxyIdMixIn(six.with_metaclass(MixInMeta, object)):
         )
 
 
+class SockMixIn(six.with_metaclass(MixInMeta, object)):
+    _mixin_prio = 40
+
+    def _mixin_setup(self):
+        self.add_option(
+            '--sockfd',
+            default=None,
+            dest='sock_fd',
+            help=('file descriptor of existing outbound-ssh connection socket.')
+        )
+
+
 class OutputOptionsMixIn(six.with_metaclass(MixInMeta, object)):
 
     _mixin_prio_ = 40
@@ -1751,6 +1763,7 @@ class MinionOptionParser(six.with_metaclass(OptionParserMeta,
 class ProxyMinionOptionParser(six.with_metaclass(OptionParserMeta,
                                                  OptionParser,
                                                  ProxyIdMixIn,
+                                                 SockMixIn,
                                                  ConfigDirMixIn,
                                                  MergeConfigMixIn,
                                                  LogLevelMixIn,
@@ -1774,8 +1787,14 @@ class ProxyMinionOptionParser(six.with_metaclass(OptionParserMeta,
         except AttributeError:
             minion_id = None
 
+        try:
+            sock_fd = self.values.sock
+        except AttributeError:
+            sock_fd = None
+
         return config.minion_config(self.get_config_file_path(),
                                     cache_minion_id=False,
+                                    sock_fd=sock_fd,
                                     minion_id=minion_id)
 
 

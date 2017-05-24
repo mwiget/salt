@@ -39,6 +39,9 @@ from __future__ import absolute_import
 
 # Import python libs
 import logging
+import subprocess
+import socket
+import pprint
 
 # Import 3rd-party libs
 try:
@@ -78,7 +81,16 @@ def init(opts):
     opts['multiprocessing'] = False
     log.debug('Opening connection to junos')
 
-    args = {"host": opts['proxy']['host']}
+    if 'host' in opts['proxy'].keys():
+        args = {"host": opts['proxy']['host']}
+    else:
+        args = {"host": None}
+
+    if 'sock_fd' in opts.keys():
+        args['sock_fd'] = opts['sock_fd']
+    else:
+        args['sock_fd'] = None
+
     optional_args = ['user',
                      'username',
                      'password',
@@ -101,11 +113,52 @@ def init(opts):
         if arg in proxy_keys:
             args[arg] = opts['proxy'][arg]
 
-    thisproxy['conn'] = jnpr.junos.Device(**args)
-    thisproxy['conn'].open()
-    thisproxy['conn'].bind(cu=jnpr.junos.utils.config.Config)
-    thisproxy['conn'].bind(sw=jnpr.junos.utils.sw.SW)
-    thisproxy['initialized'] = True
+    if args['sock_fd'] == None and args['host'] == None:
+        log.debug('Listen for outbound-ssh Junos devices on port')
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.bind(('', opts['proxy']['port']))
+        s.listen(5)
+        while True:
+            client, addr = s.accept()
+            _launch_junos_proxy(client, addr)
+
+    else:
+        thisproxy['conn'] = jnpr.junos.Device(**args)
+        thisproxy['conn'].open()
+        thisproxy['conn'].bind(cu=jnpr.junos.utils.config.Config)
+        thisproxy['conn'].bind(sw=jnpr.junos.utils.sw.SW)
+        thisproxy['initialized'] = True
+
+def _launch_junos_proxy(client, addr):
+    val = {
+            'MSG-ID' : None,
+            'MSG-VER' : None,
+            'DEVICE-ID' : None
+            }
+    msg = ''
+    count = 3
+    while len(msg) < 100 and count > 0:
+        c = client.recv(1)
+        if c == '\r':
+            continue
+
+        if c == '\n':
+            count = count - 1
+            if msg.find(':'):
+                (key, value) = msg.split(': ')
+                val[key] = value
+                msg = ''
+        else:
+            msg += c
+
+    proxy_id = val['DEVICE-ID']
+    fh = client.fileno()
+    if val['DEVICE-ID']:
+        log.debug('Launching salt-proxy for {0}'.format(val['DEVICE-ID']))
+        proc = subprocess.Popen(['/usr/bin/salt-proxy',
+            '--proxyid', val['DEVICE-ID'], '--sockfd', str(fh),
+            '--disable-keepalive'])
 
 
 def initialized():

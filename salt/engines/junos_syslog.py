@@ -148,6 +148,15 @@ class _Parser(object):
         # hostname
         hostname = Word(alphas + nums + "_" + "-" + ".")
 
+        # log-prefix ip address of device
+        logipAddress = Optional(
+            delimitedList(
+                ints,
+                ".",
+                combine=True) + Suppress(
+                    ":"))
+
+
         # daemon
         daemon = Word(alphas + nums + "/" + "-" + "_" + ".") + Optional(
             Suppress("[") + ints + Suppress("]")) + Suppress(":")
@@ -156,6 +165,9 @@ class _Parser(object):
         message = Regex(".*")
 
         # pattern build
+        self.__pattern_log_prefix = ipAddress + priority + timestamp + \
+            hostname + logipAddress + daemon + message + StringEnd() | EOL
+
         self.__pattern = ipAddress + priority + timestamp + \
             hostname + daemon + message + StringEnd() | EOL
 
@@ -164,12 +176,17 @@ class _Parser(object):
 
     def parse(self, line):
         try:
-            parsed = self.__pattern.parseString(line)
+            parsed = self.__pattern_log_prefix.parseString(line)
         except Exception:
+          try:
+            parsed = self.__pattern.parseString(line)
+          except Exception:
             try:
                 parsed = self.__pattern_without_daemon.parseString(line)
             except Exception:
                 return
+#        log.warning('syslog parsed {0})'.format(parsed))
+#        log.warning('syslog len {0})'.format(len(parsed)))
         if len(parsed) == 6:
             payload = {}
             payload["priority"] = int(parsed[0])
@@ -216,12 +233,12 @@ class _Parser(object):
             return payload
         elif len(parsed) == 9:
             payload = {}
-            payload["hostip"] = parsed[0]
-            payload["priority"] = int(parsed[1])
+            payload["hostip"] = parsed[5]
+            payload["priority"] = int(parsed[0])
             payload["severity"] = payload["priority"] & 0x07
             payload["facility"] = payload["priority"] >> 3
             payload["timestamp"] = strftime("%Y-%m-%d %H:%M:%S")
-            payload["hostname"] = parsed[5]
+            payload["hostname"] = parsed[4]
             payload["daemon"] = parsed[6]
             payload["pid"] = parsed[7]
             payload["message"] = parsed[8]
@@ -297,7 +314,8 @@ class _SyslogServerFactory(DatagramProtocol):
 
         '''
         data = self.obj.parse(data)
-        data['hostip'] = host
+        if 'hostip' not in data:
+          data['hostip'] = host
         log.debug(
             'Junos Syslog - received {0} from {1}, \
             sent from port {2}'.format(data, host, port))
